@@ -1,0 +1,66 @@
+# Levanta todo:  docker compose up -d --build
+#   API      -> http://localhost:8080  (Swagger: /swagger-ui.html)
+#   Mailpit  -> http://localhost:8025  (bandeja donde llegan los correos de recuperación)
+#   MySQL    -> localhost:3307         (usuario/clave en .env)
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: ecommerce-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ecommerce
+      MYSQL_USER: ${MYSQL_APP_USER:-ecommerce}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:-ecommerce123}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+    ports:
+      - "3307:3306"   # 3307 afuera para no chocar con un MySQL instalado en tu PC
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: ecommerce-mail
+    restart: unless-stopped
+    ports:
+      - "8025:8025"   # interfaz web
+      - "1025:1025"   # SMTP
+
+  api:
+    build: .
+    image: ecommerce-api:latest
+    container_name: ecommerce-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: mysql
+      H2_CONSOLE: "false"
+      DB_URL: jdbc:mysql://db:3306/ecommerce?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${MYSQL_APP_USER:-ecommerce}
+      DB_PASSWORD: ${MYSQL_APP_PASSWORD:-ecommerce123}
+      JWT_SECRET: ${JWT_SECRET:-cambia-este-secreto-por-uno-largo-y-aleatorio-123456}
+      JWT_EXPIRATION_MINUTES: ${JWT_EXPIRATION_MINUTES:-1440}
+      RESET_PASSWORD_URL: ${RESET_PASSWORD_URL:-http://localhost:8080/reset-password.html?token=}
+      # Por defecto los correos van a Mailpit. Para Mailtrap/Gmail cámbialos en .env
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@ecommerce.test}
+
+volumes:
+  mysql-data:
